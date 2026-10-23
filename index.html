@@ -99,6 +99,7 @@ details summary{cursor:pointer;color:var(--muted)}
     </nav>
     <div class="row" style="gap:8px">
       <span class="badge" id="mode">loading</span>
+      <button class="primary hidden" id="install-app" style="padding:4px 12px" title="Add Mood tracker to the home screen">Install</button>
       <button class="ghost hidden" id="close-app" style="padding:4px 12px" title="Stop the app and close its window">Close</button>
     </div>
   </header>
@@ -192,6 +193,10 @@ details summary{cursor:pointer;color:var(--muted)}
         <label class="ghost" style="display:inline-block;cursor:pointer">Import file <input type="file" id="import-json" accept=".json,.jsonl,application/json" style="display:none"></label>
         <button class="ghost hidden" id="clear-local">Delete all browser data</button>
       </div>
+    </div>
+    <div class="card hidden" id="install-help">
+      <h2>Install on this device</h2>
+      <p class="muted" style="margin:0">Installed, the app gets its own home screen icon and works offline. Android Chrome: tap Install at the top when it shows, or open the menu (⋮) and choose Install app. iPhone Safari: tap Share, then Add to Home Screen.</p>
     </div>
     <div class="card">
       <h2>Questions</h2>
@@ -706,6 +711,7 @@ details summary{cursor:pointer;color:var(--muted)}
     const lb = lastBackup(), n = unbackedDays();
     $('#backup-info').textContent = store.mode === 'server' ? '' : (lb ? 'Last backup ' + lb.slice(0, 16).replace('T', ' ') : 'No backup saved yet') + (n ? '; ' + n + ' day' + (n === 1 ? '' : 's') + ' saved since then.' : '.');
     $('#clear-local').classList.toggle('hidden', store.mode !== 'local');
+    $('#install-help').classList.toggle('hidden', store.mode !== 'local' || standalone());
     $('#field-list').innerHTML = dailyQuestions().map((q) => '<li><code>' + q.id + '</code> ' + q.label + ' (' + (q.type === 'number' ? q.min + ' to ' + q.max + ', step ' + q.step : 'text') + ')</li>').join('');
   }
 
@@ -728,6 +734,23 @@ details summary{cursor:pointer;color:var(--muted)}
     $('.wrap').innerHTML = '<div class="card"><h2>Mood tracker stopped</h2><p>Your saved entries are in the data folder. You can close this tab.</p><p class="muted">To start again, double-click mood.cmd.</p></div>';
   }
 
+  // Install button: Chrome fires beforeinstallprompt when the app can be installed; the saved
+  // event opens Chrome's own "add to home screen" prompt. Hidden on the laptop server and once installed.
+  let installPrompt = null, storeReady = false;
+  const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  function updateInstallButton() {
+    $('#install-app').classList.toggle('hidden', !(installPrompt && storeReady && store.mode === 'local' && !standalone()));
+  }
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; updateInstallButton(); });
+  window.addEventListener('appinstalled', () => { installPrompt = null; updateInstallButton(); toast('Installed: open it from the home screen icon'); });
+  async function installApp() {
+    const p = installPrompt;
+    if (!p) return;
+    installPrompt = null; updateInstallButton();   // a prompt event can be used only once
+    await p.prompt();
+    try { await p.userChoice; } catch (e) { /* nothing to do either way */ }
+  }
+
   let toastTimer = null;
   function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2500); }
 
@@ -741,6 +764,8 @@ details summary{cursor:pointer;color:var(--muted)}
     }
     $('#close-app').classList.toggle('hidden', store.mode !== 'server');
     $('#close-app').addEventListener('click', closeApp);
+    $('#install-app').addEventListener('click', installApp);
+    storeReady = true; updateInstallButton();
     $('#daily-form').addEventListener('input', () => { dirty.daily = true; });
     $('#rev-form').addEventListener('input', () => { dirty.review = true; });
     window.addEventListener('beforeunload', (e) => { if (dirty.daily || dirty.review) { e.preventDefault(); e.returnValue = ''; } });
