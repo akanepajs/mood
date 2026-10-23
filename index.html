@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mood tracker</title>
+<meta name="description" content="Daily check-in with weekly, monthly, and yearly reviews. Works with the local server (data in ./data) or on its own in the browser.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#2a78d6">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{--bg:#f4f5f7;--card:#ffffff;--fg:#1c1e22;--muted:#687080;--line:#dfe3e8;--accent:#2f6fed;--accent-fg:#ffffff;--warn:#b7791f;--warn-bg:#fff7e6;--ok:#1f9d55}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#121417;--card:#1b1e23;--fg:#e8eaed;--muted:#9aa3ad;--line:#2b3039;--accent:#6b9cff;--accent-fg:#0d1117;--warn:#e0b25a;--warn-bg:#2a2410}}
+:root[data-theme="dark"]{--bg:#121417;--card:#1b1e23;--fg:#e8eaed;--muted:#9aa3ad;--line:#2b3039;--accent:#6b9cff;--accent-fg:#0d1117;--warn:#e0b25a;--warn-bg:#2a2410}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+h1{font-size:20px;margin:0}
+h2{font-size:17px;margin:0 0 8px}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button,.seg button{background:transparent;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer}
+nav button.active,.seg button.active{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{padding:4px 10px;font-size:14px}
+.badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
+.due{background:var(--warn-bg);border-color:var(--warn)}
+.due a{color:var(--fg);font-weight:600}
+.q{margin:14px 0}
+.q label{display:block;font-weight:600;margin-bottom:4px}
+.help{color:var(--muted);font-size:13px;font-weight:400}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+input[type=number]{width:88px}
+input,textarea,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+textarea{width:100%;min-height:56px;resize:vertical}
+button.primary{background:var(--accent);color:var(--accent-fg);border:0;border-radius:8px;padding:10px 18px;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+.muted{color:var(--muted)}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--bg)}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+.toast.show{opacity:1}
+.hidden{display:none}
+.stats{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px}
+.stat b{font-size:22px;display:block}
+.stat span{font-size:13px;color:var(--muted)}
+/* Bad/good as red/blue, not red/green: red/green is indistinguishable for deuteranopes (checked with the dataviz validator, 2026-10-23). */
+:root{--bad:#e34948;--good:#2a78d6;--neutral:#d5d9df}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bad:#e66767;--good:#3987e5;--neutral:#3d434d}}
+:root[data-theme="dark"]{--bad:#e66767;--good:#3987e5;--neutral:#3d434d}
+.chart-box{margin:16px 0 4px}
+.chart-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:14px;margin-bottom:4px}
+.keys{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.k{display:inline-block;vertical-align:middle;margin-right:6px}
+.k-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:.5}
+.k-line{width:14px;border-top:2px solid var(--accent)}
+.k-bad,.k-neutral,.k-good{width:10px;height:10px;border-radius:2px}
+.k-bad{background:var(--bad)} .k-neutral{background:var(--neutral)} .k-good{background:var(--good)}
+svg.chart{display:block;touch-action:pan-y}
+svg.chart .grid{stroke:var(--line);stroke-width:1}
+svg.chart .tick{fill:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+svg.chart .avg{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+svg.chart .dot{fill:var(--accent);fill-opacity:.5;stroke:var(--card);stroke-width:2}
+svg.chart .cross{stroke:var(--muted);stroke-width:1}
+svg.chart .s-bad{fill:var(--bad)} svg.chart .s-neutral{fill:var(--neutral)} svg.chart .s-good{fill:var(--good)}
+.tip{position:fixed;z-index:10;display:none;pointer-events:none;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;line-height:1.6;box-shadow:0 2px 10px rgba(0,0,0,.18);white-space:nowrap}
+.tip .tip-title{font-weight:600}
+.split{position:relative;height:36px;margin:4px 0}
+.split .track{position:absolute;left:11px;right:11px;top:14px;height:8px;border-radius:4px;background:var(--line)}
+.split input[type=range]{position:absolute;left:0;right:0;top:0;width:100%;height:36px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
+.split input[type=range]::-webkit-slider-runnable-track{background:transparent;height:36px}
+.split input[type=range]::-moz-range-track{background:transparent;height:36px}
+.split input[type=range]::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;appearance:none;width:22px;height:22px;margin-top:7px;border-radius:50%;background:var(--card);border:3px solid var(--fg);cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.split input[type=range]::-moz-range-thumb{pointer-events:auto;width:16px;height:16px;border-radius:50%;background:var(--card);border:3px solid var(--fg);cursor:grab}
+.split.unset .track{opacity:.5}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:14px}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px;background:var(--line)}
+.legend .bad::before{background:var(--bad)} .legend .good::before{background:var(--good)}
+details summary{cursor:pointer;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Mood tracker</h1>
+    <nav>
+      <button data-view="today" class="active">Today</button>
+      <button data-view="history">History</button>
+      <button data-view="reviews">Reviews</button>
+      <button data-view="settings">Settings</button>
+    </nav>
+    <div class="row" style="gap:8px">
+      <span class="badge" id="mode">loading</span>
+      <button class="ghost hidden" id="close-app" style="padding:4px 12px" title="Stop the app and close its window">Close</button>
+    </div>
+  </header>
+
+  <div id="due"></div>
+
+  <section id="view-today">
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><b id="streak">0</b><span>day streak</span></div>
+        <div class="stat"><b id="count">0</b><span>days logged</span></div>
+        <div class="stat"><b id="avg7">-</b><span>7-day avg Day/10</span></div>
+      </div>
+      <div class="row">
+        <label for="date"><strong>Date</strong></label>
+        <input type="date" id="date">
+        <span class="muted" id="date-note"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2 id="daily-title">Daily check-in</h2>
+      <form id="daily-form"></form>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="daily-save">Save</button>
+        <span class="muted" id="daily-status"></span>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-history" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">Charts</h2>
+        <div class="seg" id="chart-range">
+          <button data-range="30" class="active">30 days</button>
+          <button data-range="90">90 days</button>
+          <button data-range="all">All</button>
+        </div>
+      </div>
+      <div class="keys" style="margin-top:8px"><span><i class="k k-dot"></i>daily value</span><span><i class="k k-line"></i>7-day average</span></div>
+      <div id="charts"></div>
+    </div>
+    <div class="card">
+      <h2>Rolling averages</h2>
+      <p class="muted" style="margin-top:0">Mean of the days that have a value, and the 7-day mean divided by the 30-day mean (above 1 = trending up).</p>
+      <div class="scroll"><table id="avg-table"></table></div>
+    </div>
+    <div class="card">
+      <h2>Daily entries</h2>
+      <p class="muted" style="margin-top:0">Click a row to edit that day. "Notes" counts the free-text fields filled in.</p>
+      <div class="scroll"><table id="hist-table"></table></div>
+    </div>
+  </section>
+
+  <section id="view-reviews" class="hidden">
+    <div class="card">
+      <div class="row">
+        <label><strong>Review</strong></label>
+        <select id="rev-period">
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+        </select>
+        <label for="rev-key"><strong>Period</strong></label>
+        <input id="rev-key" style="width:120px">
+        <span class="muted" id="rev-key-help"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2 id="rev-title"></h2>
+      <form id="rev-form"></form>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="rev-save">Save</button>
+        <span class="muted" id="rev-status"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Past reviews</h2>
+      <div id="rev-list" class="muted">None yet.</div>
+    </div>
+  </section>
+
+  <section id="view-settings" class="hidden">
+    <div class="card">
+      <h2>Storage</h2>
+      <p id="storage-text"></p>
+      <p class="muted" id="backup-info"></p>
+      <div class="row">
+        <button class="primary" id="export-json">Save backup file</button>
+        <button class="ghost" id="export-csv">Export daily (CSV)</button>
+        <label class="ghost" style="display:inline-block;cursor:pointer">Import file <input type="file" id="import-json" accept=".json,.jsonl,application/json" style="display:none"></label>
+        <button class="ghost hidden" id="clear-local">Delete all browser data</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Questions</h2>
+      <p class="muted">The question sets live in <code>app/questions.js</code>. Edit that file to add, rename, or drop a field; old entries keep their answers under the old ids.</p>
+      <details><summary>Current daily fields</summary><ul id="field-list"></ul></details>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+<div class="tip" id="chart-tip"></div>
+
+<script src="questions.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const pad = (n) => String(n).padStart(2, '0');
+  const isoDate = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  const parseDate = (k) => { const p = k.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const monthKey = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  function isoWeek(d) {
+    const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = x.getUTCDay() || 7;
+    x.setUTCDate(x.getUTCDate() + 4 - day);
+    const y = x.getUTCFullYear();
+    const w = Math.ceil(((x - Date.UTC(y, 0, 1)) / 86400000 + 1) / 7);
+    return y + '-W' + pad(w);
+  }
+  // Local time with offset, e.g. 2026-10-19T21:40:05+03:00 (toISOString would give UTC).
+  function localIso(d) {
+    d = d || new Date();
+    const off = -d.getTimezoneOffset(), sign = off >= 0 ? '+' : '-', a = Math.abs(off);
+    return isoDate(d) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + sign + pad(Math.floor(a / 60)) + ':' + pad(a % 60);
+  }
+  const savedLabel = (s) => (s ? ' (saved ' + s.slice(0, 16).replace('T', ' ') + ')' : '');
+  // Logging day: before 04:00 the "day" being rated is still yesterday.
+  function logDate(now) {
+    const d = new Date(now || Date.now());
+    if (d.getHours() < 4) d.setDate(d.getDate() - 1);
+    return isoDate(d);
+  }
+
+  const store = {
+    mode: 'local', entries: [], questions: window.MOOD_QUESTIONS,
+    async init() {
+      try {
+        const r = await fetch('/api/state', { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          this.mode = 'server'; this.entries = j.entries || [];
+          if (j.questions) this.questions = j.questions;
+          return;
+        }
+      } catch (e) { /* no server: fall through to browser storage */ }
+      this.mode = 'local';
+      try { this.entries = JSON.parse(localStorage.getItem('mood_tracker_entries') || '[]'); } catch (e) { this.entries = []; }
+    },
+    get(period, key) { return this.entries.find((e) => e.period === period && e.key === key); },
+    list(period) { return this.entries.filter((e) => e.period === period).sort((a, b) => (a.key < b.key ? 1 : -1)); },
+    async save(entry) {
+      entry.saved_at = localIso();
+      if (this.mode === 'server') {
+        const r = await fetch('/api/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) });
+        if (!r.ok) { let m = 'server refused (' + r.status + ')'; try { m = (await r.json()).error || m; } catch (e) {} throw new Error(m); }
+      }
+      this.entries = this.entries.filter((e) => !(e.period === entry.period && e.key === entry.key)).concat([entry]);
+      if (this.mode === 'local') {
+        try { localStorage.setItem('mood_tracker_entries', JSON.stringify(this.entries)); }
+        catch (e) { throw new Error('browser storage failed: ' + e.message); }
+      }
+    }
+  };
+
+  // ---------- generic form builder ----------
+  function buildForm(form, questions, answers) {
+    form.innerHTML = '';
+    answers = answers || {};
+    questions.forEach((q) => {
+      const wrap = document.createElement('div'); wrap.className = 'q';
+      const label = document.createElement('label'); label.textContent = q.label; label.htmlFor = 'f-' + q.id;
+      if (q.help) { const h = document.createElement('span'); h.className = 'help'; h.textContent = ' ' + q.help; label.appendChild(h); }
+      wrap.appendChild(label);
+      const v = answers[q.id];
+      if (q.widget === 'split_partner') return;            // drawn by its partner below
+      if (q.widget === 'split') {
+        wrap.appendChild(buildSplit(q, questions.find((p) => p.id === q.split_with), answers));
+      } else if (q.type === 'number') {
+        const row = document.createElement('div'); row.className = 'row';
+        const range = document.createElement('input'); range.type = 'range'; range.min = q.min; range.max = q.max; range.step = q.step;
+        const num = document.createElement('input'); num.type = 'number'; num.min = q.min; num.max = q.max; num.step = q.step; num.id = 'f-' + q.id; num.name = q.id; num.placeholder = '-';
+        if (v !== undefined && v !== null && v !== '') { num.value = v; range.value = v; } else { range.value = (q.min + q.max) / 2; range.classList.add('unset'); }
+        range.addEventListener('input', () => { num.value = range.value; num.dispatchEvent(new Event('change')); });
+        num.addEventListener('input', () => { if (num.value !== '') range.value = num.value; });
+        row.appendChild(range); row.appendChild(num); wrap.appendChild(row);
+      } else {
+        const ta = document.createElement('textarea'); ta.id = 'f-' + q.id; ta.name = q.id; ta.value = v || ''; ta.rows = 2;
+        wrap.appendChild(ta);
+      }
+      form.appendChild(wrap);
+    });
+    return function collect() {
+      const out = {};
+      questions.forEach((q) => {
+        const el = form.querySelector('[name="' + q.id + '"]');
+        if (q.type === 'number') { if (el.value !== '') out[q.id] = Number(el.value); }
+        else { const t = el.value.trim(); if (t) out[q.id] = t; }
+      });
+      return out;
+    };
+  }
+
+  // Two-handle slider: 0..lo = bad, lo..hi = neutral, hi..100 = good. Stores bad and good.
+  function buildSplit(qBad, qGood, answers) {
+    const box = document.createElement('div');
+    const split = document.createElement('div'); split.className = 'split';
+    const track = document.createElement('div'); track.className = 'track';
+    const lo = document.createElement('input'), hi = document.createElement('input');
+    [lo, hi].forEach((r) => { r.type = 'range'; r.min = 0; r.max = 100; r.step = qBad.step || 5; });
+    const nBad = document.createElement('input'), nGood = document.createElement('input');
+    nBad.type = 'hidden'; nBad.name = qBad.id; nBad.id = 'f-' + qBad.id;
+    nGood.type = 'hidden'; nGood.name = qGood.id; nGood.id = 'f-' + qGood.id;
+    const legend = document.createElement('div'); legend.className = 'legend';
+    const bad = answers[qBad.id], good = answers[qGood.id];
+    let set = typeof bad === 'number' || typeof good === 'number';
+    lo.value = set ? (bad || 0) : 10;
+    hi.value = set ? 100 - (good || 0) : 80;
+    function paint() {
+      const l = Number(lo.value), h = Number(hi.value);
+      track.style.background = 'linear-gradient(to right, var(--bad) 0 ' + l + '%, var(--line) ' + l + '% ' + h + '%, var(--good) ' + h + '% 100%)';
+      lo.style.zIndex = (h === 100 && l > 90) ? 4 : 2; hi.style.zIndex = 3;   // keep the reachable thumb on top at the ends
+      split.classList.toggle('unset', !set);
+      if (set) { nBad.value = l; nGood.value = 100 - h; }
+      else { nBad.value = ''; nGood.value = ''; }
+      legend.innerHTML = set
+        ? '<span class="bad">Bad ' + l + '%</span><span>Neutral ' + (h - l) + '%</span><span class="good">Good ' + (100 - h) + '%</span>'
+        : '<span class="muted">Not set yet: drag a handle</span>';
+    }
+    const onLo = () => { set = true; if (Number(lo.value) > Number(hi.value)) hi.value = lo.value; paint(); };
+    const onHi = () => { set = true; if (Number(hi.value) < Number(lo.value)) lo.value = hi.value; paint(); };
+    ['input', 'change'].forEach((ev) => { lo.addEventListener(ev, onLo); hi.addEventListener(ev, onHi); });
+    split.appendChild(track); split.appendChild(lo); split.appendChild(hi);
+    box.appendChild(split); box.appendChild(legend); box.appendChild(nBad); box.appendChild(nGood);
+    paint();
+    return box;
+  }
+
+  // ---------- today ----------
+  let collectDaily = null;
+  // Unsaved edits per form, for the Close button and the leave-page warning.
+  let dirty = { daily: false, review: false };
+  function dailyQuestions() { return store.questions.periods.daily.questions; }
+  function renderToday() {
+    const key = $('#date').value;
+    const existing = store.get('daily', key);
+    $('#daily-title').textContent = store.questions.periods.daily.label + ' for ' + key + (existing ? savedLabel(existing.saved_at) : '');
+    collectDaily = buildForm($('#daily-form'), dailyQuestions(), existing ? existing.answers : {});
+    dirty.daily = false;
+    renderStats();
+  }
+  function streak() {
+    const days = new Set(store.list('daily').map((e) => e.key));
+    let d = parseDate(logDate());
+    if (!days.has(isoDate(d))) d = addDays(d, -1);
+    let n = 0;
+    while (days.has(isoDate(d))) { n++; d = addDays(d, -1); }
+    return n;
+  }
+  function renderStats() {
+    const daily = store.list('daily');
+    $('#streak').textContent = streak();
+    $('#count').textContent = daily.length;
+    const a = averages();
+    $('#avg7').textContent = a.day && a.day.a7 !== null ? a.day.a7.toFixed(2) : '-';
+  }
+  async function saveDaily() {
+    const key = $('#date').value;
+    if (!key) { toast('Pick a date first'); return; }
+    const answers = collectDaily();
+    if (!Object.keys(answers).length) { toast('Nothing filled in'); return; }
+    $('#daily-save').disabled = true;
+    try {
+      await store.save({ period: 'daily', key: key, answers: answers });
+      toast('Saved ' + key);
+      renderToday(); renderHistory(); renderDue();
+    } catch (e) { toast('Not saved: ' + e.message); }
+    $('#daily-save').disabled = false;
+  }
+
+  // ---------- history ----------
+  function numericQuestions() { return dailyQuestions().filter((q) => q.type === 'number'); }
+  function averages() {
+    const end = parseDate(logDate());
+    const out = {};
+    numericQuestions().forEach((q) => {
+      const vals = (n) => {
+        const start = isoDate(addDays(end, -(n - 1)));
+        return store.list('daily').filter((e) => e.key >= start && e.key <= isoDate(end) && typeof e.answers[q.id] === 'number').map((e) => e.answers[q.id]);
+      };
+      const mean = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+      const a7 = mean(vals(7)), a30 = mean(vals(30));
+      out[q.id] = { a7: a7, a30: a30, trend: a7 !== null && a30 ? a7 / a30 : null, n7: vals(7).length, n30: vals(30).length };
+    });
+    return out;
+  }
+  const fmt = (x, d) => (x === null || x === undefined ? '' : Number(x).toFixed(d === undefined ? 2 : d));
+  function renderHistory() {
+    renderCharts();
+    const a = averages();
+    const nq = numericQuestions();
+    let h = '<tr><th></th>' + nq.map((q) => '<th>' + (q.short || q.label) + '</th>').join('') + '</tr>';
+    h += '<tr><td>7 day average</td>' + nq.map((q) => '<td>' + fmt(a[q.id].a7) + '</td>').join('') + '</tr>';
+    h += '<tr><td>30 day average</td>' + nq.map((q) => '<td>' + fmt(a[q.id].a30) + '</td>').join('') + '</tr>';
+    h += '<tr><td>Trend (7/30)</td>' + nq.map((q) => '<td>' + fmt(a[q.id].trend) + '</td>').join('') + '</tr>';
+    h += '<tr><td class="muted">days with a value (7 / 30)</td>' + nq.map((q) => '<td class="muted">' + a[q.id].n7 + ' / ' + a[q.id].n30 + '</td>').join('') + '</tr>';
+    $('#avg-table').innerHTML = h;
+    const textIds = dailyQuestions().filter((q) => q.type === 'text').map((q) => q.id);
+    const rows = store.list('daily');
+    let t = '<tr><th>Date</th>' + nq.map((q) => '<th>' + (q.short || q.label) + '</th>').join('') + '<th>Notes</th></tr>';
+    rows.forEach((e) => {
+      const notes = textIds.filter((id) => e.answers[id]).length;
+      t += '<tr class="click" data-key="' + e.key + '"><td>' + e.key + '</td>' + nq.map((q) => '<td>' + (typeof e.answers[q.id] === 'number' ? e.answers[q.id] : '') + '</td>').join('') + '<td>' + (notes || '') + '</td></tr>';
+    });
+    if (!rows.length) t += '<tr><td colspan="' + (nq.length + 2) + '" class="muted">No entries yet.</td></tr>';
+    $('#hist-table').innerHTML = t;
+    $('#hist-table').querySelectorAll('tr.click').forEach((tr) => tr.addEventListener('click', () => { $('#date').value = tr.dataset.key; showView('today'); renderToday(); }));
+  }
+
+  // ---------- charts (inline SVG, no libraries) ----------
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVGNS, tag);
+    Object.keys(attrs).forEach((k) => el.setAttribute(k, attrs[k]));
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+  const num = (v) => String(+Number(v).toFixed(2));
+  const shortDate = (k) => parseDate(k).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const longDate = (k) => parseDate(k).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  let chartRange = 30;
+
+  // Every calendar day in the chosen range, oldest first; empty days stay as gaps.
+  function chartDays(all) {
+    let end = parseDate(logDate());
+    const newest = parseDate(all[0].key), oldest = parseDate(all[all.length - 1].key);
+    if (newest > end) end = newest;
+    let start = chartRange === 'all' ? oldest : addDays(end, -(chartRange - 1));
+    if (chartRange === 'all' && (end - start) / 86400000 < 6) start = addDays(end, -6);
+    const days = [];
+    for (let d = start; d <= end; d = addDays(d, 1)) days.push(isoDate(d));
+    return days;
+  }
+  // Mean of the days with a value in the 7 days ending on k (same rule as the averages table).
+  function rolling(byKey, id, k) {
+    const d = parseDate(k), xs = [];
+    for (let i = 0; i < 7; i++) {
+      const e = byKey[isoDate(addDays(d, -i))];
+      if (e && typeof e.answers[id] === 'number') xs.push(e.answers[id]);
+    }
+    return xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
+  }
+
+  function showTip(ev, rows) {
+    const t = $('#chart-tip');
+    t.innerHTML = '';
+    rows.forEach((r, i) => {
+      const line = document.createElement('div');
+      if (i === 0) { line.className = 'tip-title'; line.textContent = r; }
+      else {
+        const k = document.createElement('i'); k.className = 'k ' + r[0]; line.appendChild(k);
+        line.appendChild(document.createTextNode(r[2] === '' ? r[1] : r[1] + ': ' + r[2]));
+      }
+      t.appendChild(line);
+    });
+    t.style.display = 'block';
+    const w = t.offsetWidth, h = t.offsetHeight;
+    let x = ev.clientX + 14, y = ev.clientY + 14;
+    if (x + w > window.innerWidth - 8) x = ev.clientX - w - 14;
+    if (y + h > window.innerHeight - 8) y = ev.clientY - h - 14;
+    t.style.left = Math.max(8, x) + 'px'; t.style.top = Math.max(8, y) + 'px';
+  }
+  function hideTip() { $('#chart-tip').style.display = 'none'; }
+
+  // Axes, gridlines, date labels, and a crosshair + tooltip layer shared by both chart types.
+  function chartFrame(box, days, yMin, yMax, yTicks, fmtY) {
+    const W = Math.max(280, box.clientWidth || 600), H = 150, m = { l: 36, r: 12, t: 8, b: 24 };
+    const svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, class: 'chart' }, box);
+    const pw = W - m.l - m.r, ph = H - m.t - m.b, slot = pw / days.length, last = days.length - 1;
+    const x = (i) => m.l + slot * (i + 0.5);
+    const y = (v) => m.t + ph * (1 - (v - yMin) / (yMax - yMin));
+    yTicks.forEach((v) => {
+      svgEl('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: 'grid' }, svg);
+      svgEl('text', { x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, svg).textContent = fmtY(v);
+    });
+    [...new Set([0, Math.floor(last / 2), last])].forEach((i) => {
+      const anchor = last === 0 ? 'middle' : i === 0 ? 'start' : i === last ? 'end' : 'middle';
+      const tx = anchor === 'start' ? m.l : anchor === 'end' ? W - m.r : x(i);
+      svgEl('text', { x: tx, y: H - 6, 'text-anchor': anchor, class: 'tick' }, svg).textContent = shortDate(days[i]);
+    });
+    const cross = svgEl('line', { y1: m.t, y2: m.t + ph, class: 'cross', visibility: 'hidden' }, svg);
+    function hover(rowsFor) {
+      const hit = svgEl('rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'transparent' }, svg);
+      hit.addEventListener('pointermove', (ev) => {
+        const px = ev.clientX - svg.getBoundingClientRect().left;
+        const i = Math.min(last, Math.max(0, Math.floor((px - m.l) / slot)));
+        cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
+        showTip(ev, rowsFor(i));
+      });
+      hit.addEventListener('pointerleave', () => { cross.setAttribute('visibility', 'hidden'); hideTip(); });
+    }
+    return { svg: svg, x: x, y: y, slot: slot, hover: hover };
+  }
+
+  function lineChart(box, q, days, byKey) {
+    const f = chartFrame(box, days, q.min, q.max, [q.min, (q.min + q.max) / 2, q.max], num);
+    const val = (k) => { const e = byKey[k]; return e && typeof e.answers[q.id] === 'number' ? e.answers[q.id] : null; };
+    let d = '', pen = false;
+    days.forEach((k, i) => {
+      const a = rolling(byKey, q.id, k);
+      if (a === null) { pen = false; return; }
+      d += (pen ? 'L' : 'M') + f.x(i).toFixed(1) + ' ' + f.y(a).toFixed(1); pen = true;
+    });
+    if (d) svgEl('path', { d: d, class: 'avg' }, f.svg);
+    const r = days.length > 120 ? 2.5 : 4;
+    days.forEach((k, i) => { const v = val(k); if (v !== null) svgEl('circle', { cx: f.x(i), cy: f.y(v), r: r, class: 'dot' }, f.svg); });
+    f.hover((i) => {
+      const v = val(days[i]), a = rolling(byKey, q.id, days[i]);
+      return [longDate(days[i]), ['k-dot', 'Value', v === null ? 'no entry' : num(v)], ['k-line', '7-day avg', a === null ? '-' : fmt(a)]];
+    });
+  }
+
+  // One 100% column per day: bad at the bottom, neutral, good on top.
+  function splitChart(box, qBad, qGood, days, byKey) {
+    const f = chartFrame(box, days, 0, 100, [0, 50, 100], (v) => v + '%');
+    const bw = Math.min(24, Math.max(1, f.slot - 2)), gap = bw >= 4 ? 2 : 0;
+    const parts = (k) => {
+      const e = byKey[k];
+      if (!e) return null;
+      const b = e.answers[qBad.id], g = e.answers[qGood.id];
+      if (typeof b !== 'number' && typeof g !== 'number') return null;
+      return { bad: b || 0, neutral: Math.max(0, 100 - (b || 0) - (g || 0)), good: g || 0 };
+    };
+    days.forEach((k, i) => {
+      const p = parts(k);
+      if (!p) return;
+      let acc = 0;
+      ['bad', 'neutral', 'good'].forEach((name) => {
+        const v = p[name];
+        if (v <= 0) return;
+        const y0 = f.y(acc), y1 = f.y(acc + v), inset = acc > 0 ? gap : 0;
+        acc += v;
+        svgEl('rect', { x: f.x(i) - bw / 2, y: y1, width: bw, height: Math.max(0.5, y0 - y1 - inset), class: 's-' + name }, f.svg);
+      });
+    });
+    f.hover((i) => {
+      const p = parts(days[i]);
+      return p ? [longDate(days[i]), ['k-bad', 'Bad', p.bad + '%'], ['k-neutral', 'Neutral', p.neutral + '%'], ['k-good', 'Good', p.good + '%']]
+               : [longDate(days[i]), ['', 'No entry', '']];
+    });
+  }
+
+  function renderCharts() {
+    const box = $('#charts');
+    box.innerHTML = '';
+    hideTip();
+    const all = store.list('daily');
+    if (!all.length) { box.innerHTML = '<p class="muted">No entries yet.</p>'; return; }
+    const byKey = {};
+    all.forEach((e) => { byKey[e.key] = e; });
+    const days = chartDays(all), a = averages();
+    dailyQuestions().forEach((q) => {
+      if (q.type !== 'number' || q.widget === 'split_partner') return;
+      const wrap = document.createElement('div'); wrap.className = 'chart-box';
+      const head = document.createElement('div'); head.className = 'chart-head';
+      const title = document.createElement('strong'); title.textContent = q.label;
+      const sub = document.createElement('span'); sub.className = 'muted';
+      head.appendChild(title); head.appendChild(sub); wrap.appendChild(head);
+      const area = document.createElement('div');
+      if (q.widget === 'split') {
+        const qg = dailyQuestions().find((p) => p.id === q.split_with);
+        if (a[q.id].a7 !== null) sub.textContent = '7-day avg: bad ' + fmt(a[q.id].a7, 0) + '%, good ' + fmt(a[qg.id].a7, 0) + '%';
+        const keys = document.createElement('div'); keys.className = 'keys';
+        keys.innerHTML = '<span><i class="k k-bad"></i>Bad</span><span><i class="k k-neutral"></i>Neutral</span><span><i class="k k-good"></i>Good</span>';
+        wrap.appendChild(keys); wrap.appendChild(area); box.appendChild(wrap);
+        splitChart(area, q, qg, days, byKey);
+      } else {
+        if (a[q.id].a7 !== null) sub.textContent = '7-day avg ' + fmt(a[q.id].a7) + (a[q.id].a30 !== null ? ' · 30-day ' + fmt(a[q.id].a30) : '');
+        wrap.appendChild(area); box.appendChild(wrap);
+        lineChart(area, q, days, byKey);
+      }
+    });
+  }
+
+  // ---------- reviews ----------
+  function reviewKeyFor(period, d) {
+    if (period === 'weekly') return isoWeek(d);
+    if (period === 'monthly') return monthKey(d);
+    return String(d.getFullYear());
+  }
+  function dueReviews() {
+    const now = new Date(), due = [];
+    const dow = now.getDay(), dom = now.getDate(), mon = now.getMonth();
+    let wk = null;
+    if (dow === 0) wk = isoWeek(now); else if (dow === 1 || dow === 2) wk = isoWeek(addDays(now, -7));
+    if (wk && !store.get('weekly', wk)) due.push({ period: 'weekly', key: wk });
+    let mk = null;
+    if (dom >= 28) mk = monthKey(now); else if (dom <= 5) mk = monthKey(new Date(now.getFullYear(), mon - 1, 1));
+    if (mk && !store.get('monthly', mk)) due.push({ period: 'monthly', key: mk });
+    let yk = null;
+    if (mon === 11 && dom >= 20) yk = String(now.getFullYear()); else if (mon === 0 && dom <= 15) yk = String(now.getFullYear() - 1);
+    if (yk && !store.get('yearly', yk)) due.push({ period: 'yearly', key: yk });
+    return due;
+  }
+  function renderDue() {
+    const due = dueReviews();
+    const today = logDate();
+    const items = [];
+    if (!store.get('daily', today)) items.push('<a href="#" data-view="today">daily check-in for ' + today + '</a>');
+    due.forEach((d) => items.push('<a href="#" data-view="reviews" data-period="' + d.period + '" data-key="' + d.key + '">' + d.period + ' review for ' + d.key + '</a>'));
+    const unbacked = store.mode === 'local' ? unbackedDays() : 0;
+    if (unbacked >= 7) items.push('<a href="#" data-view="settings">backup file (' + unbacked + ' days not backed up)</a>');
+    $('#due').innerHTML = items.length ? '<div class="card due">Due now: ' + items.join(' · ') + '</div>' : '';
+    $('#due').querySelectorAll('a').forEach((a) => a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (a.dataset.view === 'reviews') { $('#rev-period').value = a.dataset.period; $('#rev-key').value = a.dataset.key; renderReview(); }
+      showView(a.dataset.view);
+    }));
+  }
+  let collectReview = null;
+  function renderReview() {
+    const period = $('#rev-period').value;
+    const spec = store.questions.periods[period];
+    if (!$('#rev-key').value) $('#rev-key').value = reviewKeyFor(period, new Date());
+    $('#rev-key-help').textContent = period === 'weekly' ? 'format 2026-W42' : period === 'monthly' ? 'format 2026-10' : 'format 2026';
+    const key = $('#rev-key').value.trim();
+    const existing = store.get(period, key);
+    $('#rev-title').textContent = spec.label + ' ' + key + (existing ? savedLabel(existing.saved_at) : '');
+    collectReview = buildForm($('#rev-form'), spec.questions, existing ? existing.answers : {});
+    dirty.review = false;
+    const past = store.list(period);
+    $('#rev-list').innerHTML = past.length ? past.map((e) => '<div><a href="#" data-key="' + e.key + '">' + e.key + '</a> <span class="muted">' + Object.keys(e.answers).length + ' answers</span></div>').join('') : 'None yet.';
+    $('#rev-list').querySelectorAll('a').forEach((a) => a.addEventListener('click', (ev) => { ev.preventDefault(); $('#rev-key').value = a.dataset.key; renderReview(); }));
+  }
+  async function saveReview() {
+    const period = $('#rev-period').value, key = $('#rev-key').value.trim();
+    const okKey = { weekly: /^\d{4}-W\d{2}$/, monthly: /^\d{4}-\d{2}$/, yearly: /^\d{4}$/ }[period];
+    if (!okKey.test(key)) { toast('Period format: ' + $('#rev-key-help').textContent); return; }
+    const answers = collectReview();
+    if (!Object.keys(answers).length) { toast('Nothing filled in'); return; }
+    try { await store.save({ period: period, key: key, answers: answers }); toast('Saved ' + period + ' ' + key); renderReview(); renderDue(); }
+    catch (e) { toast('Not saved: ' + e.message); }
+  }
+
+  // ---------- settings ----------
+  function download(name, text, type) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: type })); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  function csvDaily() {
+    const qs = dailyQuestions();
+    const esc = (v) => { const s = v === undefined || v === null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [['key', 'saved_at'].concat(qs.map((q) => q.id)).join(',')];
+    store.list('daily').reverse().forEach((e) => lines.push([e.key, e.saved_at].concat(qs.map((q) => esc(e.answers[q.id]))).join(',')));
+    return lines.join('\n');
+  }
+  // Backup file = every entry in one JSON file; the newest backup is the whole history.
+  const LAST_BACKUP = 'mood_tracker_last_backup';
+  function lastBackup() { try { return localStorage.getItem(LAST_BACKUP) || ''; } catch (e) { return ''; } }
+  function unbackedDays() { const lb = lastBackup(); return store.list('daily').filter((e) => (e.saved_at || '') > lb).length; }
+  async function saveBackup() {
+    const name = 'mood-backup_' + isoDate(new Date()) + '.json';
+    const text = JSON.stringify({ format: 'mood-tracker-backup', version: 1, exported: localIso(), entries: store.entries }, null, 1);
+    let shared = false;
+    // On a phone, the share sheet lets the file go to Files, Google Drive, email, and so on.
+    if (/Android|iPhone|iPad/i.test(navigator.userAgent) && navigator.canShare) {
+      const file = new File([text], name, { type: 'application/json' });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: name }); shared = true; }
+        catch (e) { if (e.name === 'AbortError') return; }
+      }
+    }
+    if (!shared) download(name, text, 'application/json');
+    try { localStorage.setItem(LAST_BACKUP, localIso()); } catch (e) { /* reminder just keeps showing */ }
+    renderSettings(); renderDue();
+  }
+  // Accepts a backup file, a plain array, or the laptop's data/entries.jsonl (one entry per line).
+  function parseImport(text) {
+    try { const j = JSON.parse(text); return Array.isArray(j) ? j : j.entries; }
+    catch (e) {
+      const out = [];
+      text.split(/\r?\n/).forEach((line) => { line = line.trim(); if (line) { try { out.push(JSON.parse(line)); } catch (err) { /* skip */ } } });
+      return out.length ? out : null;
+    }
+  }
+  async function importJson(file) {
+    const list = parseImport(await file.text());
+    if (!Array.isArray(list)) { toast('Not a valid export'); return; }
+    let n = 0;
+    for (const e of list) {
+      if (!e || !e.period || !e.key || typeof e.answers !== 'object') continue;
+      const cur = store.get(e.period, e.key);
+      if (cur && cur.saved_at >= (e.saved_at || '')) continue;   // keep the newer one
+      try { await store.save({ period: e.period, key: e.key, answers: e.answers }); n++; } catch (err) { /* skip bad rows */ }
+    }
+    toast('Imported ' + n + ' entries'); renderToday(); renderHistory(); renderReview(); renderDue();
+  }
+  function renderSettings() {
+    $('#storage-text').textContent = store.mode === 'server'
+      ? 'Connected to the local server: every save is appended to data/entries.jsonl and data/entries.csv is rewritten. Those files live in the data folder next to serve.py.'
+      : 'Entries are kept on this device only, in this app\'s own storage; nothing is sent anywhere. "Save backup file" writes every entry to one file (on a phone you can send it to Files or Google Drive), so the newest backup holds the whole history. "Import file" merges a backup back in, keeping the newer version of each day; it also reads the laptop app\'s entries.jsonl, and the laptop app can import a phone backup.';
+    const lb = lastBackup(), n = unbackedDays();
+    $('#backup-info').textContent = store.mode === 'server' ? '' : (lb ? 'Last backup ' + lb.slice(0, 16).replace('T', ' ') : 'No backup saved yet') + (n ? '; ' + n + ' day' + (n === 1 ? '' : 's') + ' saved since then.' : '.');
+    $('#clear-local').classList.toggle('hidden', store.mode !== 'local');
+    $('#field-list').innerHTML = dailyQuestions().map((q) => '<li><code>' + q.id + '</code> ' + q.label + ' (' + (q.type === 'number' ? q.min + ' to ' + q.max + ', step ' + q.step : 'text') + ')</li>').join('');
+  }
+
+  // ---------- shell ----------
+  function showView(name) {
+    document.querySelectorAll('section[id^="view-"]').forEach((s) => s.classList.toggle('hidden', s.id !== 'view-' + name));
+    document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+    if (name === 'history') renderHistory();
+    if (name === 'reviews') renderReview();
+    if (name === 'settings') renderSettings();
+  }
+  async function closeApp() {
+    if ((dirty.daily || dirty.review) && !confirm('You have changes that are not saved. Close anyway and lose them?')) return;
+    try {
+      const r = await fetch('/api/shutdown', { method: 'POST' });
+      if (!r.ok) throw new Error('server answered ' + r.status);
+    } catch (e) { toast('Could not stop the app: ' + e.message); return; }
+    dirty = { daily: false, review: false };
+    hideTip();
+    $('.wrap').innerHTML = '<div class="card"><h2>Mood tracker stopped</h2><p>Your saved entries are in the data folder. You can close this tab.</p><p class="muted">To start again, double-click mood.cmd.</p></div>';
+  }
+
+  let toastTimer = null;
+  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2500); }
+
+  async function init() {
+    await store.init();
+    $('#mode').textContent = store.mode === 'server' ? 'saving to files' : 'saved on this device';
+    if (store.mode === 'local') {
+      // Ask the browser not to evict the entries under storage pressure; install for offline use.
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+    $('#close-app').classList.toggle('hidden', store.mode !== 'server');
+    $('#close-app').addEventListener('click', closeApp);
+    $('#daily-form').addEventListener('input', () => { dirty.daily = true; });
+    $('#rev-form').addEventListener('input', () => { dirty.review = true; });
+    window.addEventListener('beforeunload', (e) => { if (dirty.daily || dirty.review) { e.preventDefault(); e.returnValue = ''; } });
+    document.querySelectorAll('#chart-range button').forEach((b) => b.addEventListener('click', () => {
+      chartRange = b.dataset.range === 'all' ? 'all' : Number(b.dataset.range);
+      document.querySelectorAll('#chart-range button').forEach((x) => x.classList.toggle('active', x === b));
+      renderCharts();
+    }));
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { if (!$('#view-history').classList.contains('hidden')) renderCharts(); }, 150);
+    });
+    const d = logDate();
+    $('#date').value = d;
+    $('#date').max = isoDate(new Date());
+    $('#date-note').textContent = d !== isoDate(new Date()) ? '(before 04:00, so still yesterday)' : '';
+    document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+    $('#date').addEventListener('change', renderToday);
+    $('#daily-save').addEventListener('click', (e) => { e.preventDefault(); saveDaily(); });
+    $('#daily-form').addEventListener('submit', (e) => { e.preventDefault(); saveDaily(); });
+    $('#rev-period').addEventListener('change', () => { $('#rev-key').value = ''; renderReview(); });
+    $('#rev-key').addEventListener('change', renderReview);
+    $('#rev-save').addEventListener('click', (e) => { e.preventDefault(); saveReview(); });
+    $('#rev-form').addEventListener('submit', (e) => { e.preventDefault(); saveReview(); });
+    $('#export-json').addEventListener('click', saveBackup);
+    $('#export-csv').addEventListener('click', () => download('mood_entries_' + isoDate(new Date()) + '.csv', csvDaily(), 'text/csv'));
+    $('#import-json').addEventListener('change', (e) => { if (e.target.files[0]) importJson(e.target.files[0]); e.target.value = ''; });
+    $('#clear-local').addEventListener('click', () => { if (confirm('Delete every entry stored in this browser? Export first if you want to keep them.')) { localStorage.removeItem('mood_tracker_entries'); store.entries = []; renderToday(); renderHistory(); renderDue(); toast('Browser data deleted'); } });
+    renderToday(); renderDue();
+  }
+  init();
+})();
+</script>
+</body>
+</html>
