@@ -183,6 +183,16 @@ details summary{cursor:pointer;color:var(--muted)}
   </section>
 
   <section id="view-settings" class="hidden">
+    <div class="card hidden" id="install-help">
+      <h2>Install on this device</h2>
+      <p class="muted" style="margin:0 0 8px">Installed, the app gets its own home screen icon and works offline.</p>
+      <ul style="margin:0;padding-left:20px">
+        <li><strong>Android Chrome:</strong> open the menu (⋮, top right) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>. If neither is there, tap the page once, wait about 30 seconds, and reload.</li>
+        <li><strong>Opened from Gmail, Slack, or another app?</strong> That is the app's own mini browser, which cannot install. Use its menu to open the page in Chrome first.</li>
+        <li><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</li>
+        <li><strong>Already installed?</strong> Open it from the home screen icon instead.</li>
+      </ul>
+    </div>
     <div class="card">
       <h2>Storage</h2>
       <p id="storage-text"></p>
@@ -193,10 +203,6 @@ details summary{cursor:pointer;color:var(--muted)}
         <label class="ghost" style="display:inline-block;cursor:pointer">Import file <input type="file" id="import-json" accept=".json,.jsonl,application/json" style="display:none"></label>
         <button class="ghost hidden" id="clear-local">Delete all browser data</button>
       </div>
-    </div>
-    <div class="card hidden" id="install-help">
-      <h2>Install on this device</h2>
-      <p class="muted" style="margin:0">Installed, the app gets its own home screen icon and works offline. Android Chrome: tap Install at the top when it shows, or open the menu (⋮) and choose Install app. iPhone Safari: tap Share, then Add to Home Screen.</p>
     </div>
     <div class="card">
       <h2>Questions</h2>
@@ -734,21 +740,31 @@ details summary{cursor:pointer;color:var(--muted)}
     $('.wrap').innerHTML = '<div class="card"><h2>Mood tracker stopped</h2><p>Your saved entries are in the data folder. You can close this tab.</p><p class="muted">To start again, double-click mood.cmd.</p></div>';
   }
 
-  // Install button: Chrome fires beforeinstallprompt when the app can be installed; the saved
-  // event opens Chrome's own "add to home screen" prompt. Hidden on the laptop server and once installed.
-  let installPrompt = null, storeReady = false;
+  // Install button: shown whenever the page runs in a browser tab (not the laptop server, not the
+  // installed app). If Chrome has offered installation (beforeinstallprompt), it opens Chrome's own
+  // prompt; otherwise it shows the manual steps in Settings.
+  let installPrompt = null, storeReady = false, justInstalled = false;
   const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   function updateInstallButton() {
-    $('#install-app').classList.toggle('hidden', !(installPrompt && storeReady && store.mode === 'local' && !standalone()));
+    $('#install-app').classList.toggle('hidden', !(storeReady && store.mode === 'local' && !standalone() && !justInstalled));
   }
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; updateInstallButton(); });
-  window.addEventListener('appinstalled', () => { installPrompt = null; updateInstallButton(); toast('Installed: open it from the home screen icon'); });
+  window.addEventListener('appinstalled', () => { installPrompt = null; justInstalled = true; updateInstallButton(); toast('Installed: open it from the home screen icon'); });
+  function showInstallSteps() {
+    showView('settings');
+    const card = $('#install-help');
+    card.classList.remove('hidden');
+    card.scrollIntoView({ block: 'start' });
+    card.classList.add('due'); setTimeout(() => card.classList.remove('due'), 2500);
+  }
   async function installApp() {
     const p = installPrompt;
-    if (!p) return;
-    installPrompt = null; updateInstallButton();   // a prompt event can be used only once
+    if (!p) { showInstallSteps(); return; }
+    installPrompt = null;   // a prompt event can be used only once
     await p.prompt();
-    try { await p.userChoice; } catch (e) { /* nothing to do either way */ }
+    let choice = null;
+    try { choice = await p.userChoice; } catch (e) { /* treat as dismissed */ }
+    if (!choice || choice.outcome !== 'accepted') toast('Not installed. Tap Install again for the manual steps.');
   }
 
   let toastTimer = null;
